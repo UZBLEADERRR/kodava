@@ -1,0 +1,3 @@
+-keepattributes *Annotation*, InnerClasses
+-dontwarn kotlinx.serialization.**
+-keepclassmembers class uz.kodava.studio.data.** { *; }
