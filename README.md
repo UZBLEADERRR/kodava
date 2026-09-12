@@ -1,0 +1,2 @@
+# kodava
+Kodava loyihasi
