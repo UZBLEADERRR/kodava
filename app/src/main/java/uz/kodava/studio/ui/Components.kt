@@ -88,7 +88,7 @@ fun TopRow(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
-    actions: @Composable RowScopeContent = {}
+    actions: @Composable () -> Unit = {}
 ) {
     Row(
         Modifier
@@ -111,8 +111,6 @@ fun TopRow(
         actions()
     }
 }
-
-typealias RowScopeContent = @Composable () -> Unit
 
 @Composable
 fun CircleButton(icon: ImageVector, description: String, onClick: () -> Unit) {
