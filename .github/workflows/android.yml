@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dkotlin.compiler.execution.strategy=in-process
     steps:
       - uses: actions/checkout@v4
 
@@ -20,8 +23,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug and release APK
-        run: ./gradlew --no-daemon assembleDebug assembleRelease
+      - name: Environment info
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+          ls "$ANDROID_HOME/build-tools" || true
+          java -version
+
+      - name: Build debug APK
+        timeout-minutes: 25
+        run: ./gradlew --no-daemon --console=plain --stacktrace assembleDebug
+
+      - name: Build release APK
+        timeout-minutes: 15
+        run: ./gradlew --no-daemon --console=plain --stacktrace assembleRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

@@ -138,10 +138,15 @@ object SlideshowEncoder {
     }
 
     private fun drain(codec: MediaCodec, state: MuxState, info: MediaCodec.BufferInfo, endOfStream: Boolean) {
+        // Yakunda koder javob bermay qolsa ham ilova qotib qolmasligi uchun urinishlar cheklanadi.
+        var idleAttempts = 0
         while (true) {
             val index = codec.dequeueOutputBuffer(info, if (endOfStream) TIMEOUT_US * 10 else 0)
             when {
-                index == MediaCodec.INFO_TRY_AGAIN_LATER -> if (!endOfStream) return
+                index == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                    if (!endOfStream) return
+                    if (++idleAttempts > 300) return
+                }
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     if (!state.started) {
                         state.trackIndex = state.muxer.addTrack(codec.outputFormat)
