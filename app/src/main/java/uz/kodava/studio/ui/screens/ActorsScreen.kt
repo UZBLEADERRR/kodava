@@ -1,108 +1,113 @@
 package uz.kodava.studio.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import uz.kodava.studio.ui.AppViewModel
-import uz.kodava.studio.ui.InfoCard
-import uz.kodava.studio.ui.KodavaScaffold
+import uz.kodava.studio.ui.Avatar
+import uz.kodava.studio.ui.Banner
+import uz.kodava.studio.ui.EmptyState
+import uz.kodava.studio.ui.GradientButton
+import uz.kodava.studio.ui.KodavaCard
+import uz.kodava.studio.ui.KodavaScreen
+import uz.kodava.studio.ui.TopRow
+import uz.kodava.studio.ui.theme.Kodava
 
 @Composable
 fun ActorsScreen(vm: AppViewModel, nav: NavController) {
-    KodavaScaffold(
-        title = "Aktyorlar",
-        vm = vm,
-        onBack = { nav.popBackStack() },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    val actor = vm.newActor()
-                    nav.navigate("actor/${actor.id}")
-                },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Aktyor qo'shish") }
-            )
-        }
-    ) { padding ->
+    KodavaScreen(vm) { padding ->
         LazyColumn(
             Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+            contentPadding = PaddingValues(0.dp, 0.dp, 0.dp, 40.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                InfoCard(
-                    "Har bir aktyor uchun yuzi aniq ko'ringan 1–4 ta surat qo'shing. " +
-                        "Ilova shu suratlardan \"yuz pasporti\" yozadi va har bir sahnada aynan shu yuzni chizadi."
+                TopRow(
+                    title = "Aktyorlar",
+                    subtitle = "Yuzlar shu suratlardan olinadi",
+                    onBack = { nav.popBackStack() }
                 )
             }
-            items(vm.actors, key = { it.id }) { actor ->
-                ElevatedCard(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { nav.navigate("actor/${actor.id}") },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+
+            item {
+                Column(
+                    Modifier.padding(horizontal = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier
-                                .size(64.dp)
-                                .clip(CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val ref = actor.refs.firstOrNull()
-                            if (ref != null) {
-                                AsyncImage(
-                                    model = vm.store.file(ref),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Text("👤", style = MaterialTheme.typography.titleLarge)
-                            }
-                        }
+                    Banner(
+                        text = "Har bir aktyorga yuzi aniq ko'ringan 1–3 ta surat qo'shing. " +
+                            "Ilova ulardan \"yuz pasporti\" yozadi va har bir kadrda aynan shu yuzni chizadi."
+                    )
+                    GradientButton(
+                        text = "Aktyor qo'shish",
+                        icon = Icons.Default.Add,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val actor = vm.newActor()
+                        nav.navigate("actor/${actor.id}")
+                    }
+                }
+            }
+
+            if (vm.actors.isEmpty()) {
+                item {
+                    EmptyState(
+                        emoji = "👤",
+                        title = "Aktyor yo'q",
+                        text = "Aktyor qo'shib surat yuklang — shundan keyin barcha sahnalarda yuz o'zgarmaydi."
+                    )
+                }
+            }
+
+            items(vm.actors, key = { it.id }) { actor ->
+                KodavaCard(
+                    Modifier.padding(horizontal = 18.dp),
+                    onClick = { nav.navigate("actor/${actor.id}") }
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(
+                            file = actor.refs.firstOrNull()?.let { vm.store.file(it) },
+                            name = actor.name,
+                            size = 62.dp
+                        )
+                        Spacer(Modifier.width(14.dp))
                         Column(
-                            Modifier
-                                .weight(1f)
-                                .padding(start = 12.dp),
+                            Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(actor.name.ifBlank { "Nomsiz aktyor" }, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "${actor.refs.size} ta surat · " +
-                                    if (actor.appearance.isBlank()) "tavsif yo'q" else "tavsif tayyor",
+                                actor.name.ifBlank { "Nomsiz aktyor" },
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                if (actor.refs.isEmpty()) "surat yo'q"
+                                else "${actor.refs.size} ta surat",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (actor.refs.isEmpty()) Kodava.Amber else Kodava.TextMid
+                            )
+                            Text(
+                                if (actor.appearance.isBlank()) "yuz pasporti yozilmagan" else "yuz pasporti tayyor ✓",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (actor.appearance.isBlank()) Kodava.TextMid else Kodava.Mint
                             )
                         }
                     }

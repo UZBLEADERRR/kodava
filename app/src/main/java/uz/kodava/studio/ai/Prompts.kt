@@ -5,6 +5,17 @@ import uz.kodava.studio.data.Project
 import uz.kodava.studio.data.Scene
 import uz.kodava.studio.data.Styles
 
+/** Bitta aktyor uchun yuborilgan etalon suratlar diapazoni. */
+data class RefBlock(
+    val name: String,
+    val appearance: String,
+    val firstImage: Int,
+    val lastImage: Int
+) {
+    val label: String
+        get() = if (firstImage == lastImage) "image #$firstImage" else "images #$firstImage-#$lastImage"
+}
+
 /** Barcha AI so'rovlari matni shu yerda yig'iladi. */
 object Prompts {
 
@@ -24,7 +35,7 @@ object Prompts {
     fun script(project: Project, actors: List<Actor>): String {
         val cast = if (actors.isEmpty()) "Aktyorlar ko'rsatilmagan — kerak bo'lsa personajlarni o'zingiz o'ylab toping."
         else actors.joinToString("\n") { a ->
-            "- id: ${a.id} | ism: ${a.name} | izoh: ${a.note.ifBlank { "-" }} | tashqi ko'rinish: ${a.appearance.ifBlank { "-" }}"
+            "- id: ${a.id} | ism: ${a.name} | izoh: ${a.note.ifBlank { "-" }}"
         }
         return """
             Sen tajribali kino ssenariynavis va rejissyorsan. Foydalanuvchi g'oyasidan qisqa video uchun
@@ -37,16 +48,18 @@ object Prompts {
             KADR NISBATI: ${project.aspect}
             SAHNALAR SONI: aniq ${project.sceneCount} ta
 
-            AKTYORLAR RO'YXATI (faqat shu id'lardan foydalan):
+            AKTYORLAR RO'YXATI (faqat shu id'lardan foydalan, yangi personaj o'ylab topma):
             $cast
 
             QOIDALAR:
             1. "title", "logline", "summary", "dialogue" — O'ZBEK TILIDA (lotin alifbosi).
-            2. "image_prompt" — INGLIZ TILIDA, juda batafsil: kim kadrda, nima qilyapti, qayerda,
+            2. "image_prompt" — INGLIZ TILIDA, batafsil: kim kadrda, nima qilyapti, qayerda,
                yorug'lik, kamera rakursi, plan (wide/medium/close-up), rang palitrasi, kayfiyat.
-               image_prompt ichida personajni FAQAT ismi bilan atа (masalan "Aziz"), yuzini tasvirlama.
+               image_prompt ichida personajni FAQAT ismi bilan atab o't (masalan "Aziz") —
+               uning yuzini, sochini yoki yoshini TASVIRLAMA, chunki yuz etalon surat orqali beriladi.
             3. Har bir sahnada ishtirok etayotgan aktyorlarning id'larini "actor_ids" ga yoz.
-            4. Sahnalar mantiqiy ketma-ketlikda bo'lsin: boshlanish, rivoj, kulminatsiya, yakun.
+               Deyarli har bir sahnada kamida bitta aktyor bo'lsin.
+            4. Sahnalar mantiqiy ketma-ketlikda: boshlanish, rivoj, kulminatsiya, yakun.
             5. Har bir sahna uchun "duration_sec" 3 dan 8 gacha butun son.
             6. Hech qanday izoh yozma — FAQAT quyidagi JSON.
 
@@ -72,42 +85,48 @@ object Prompts {
         """.trimIndent()
     }
 
-    /** Bitta sahna kadri uchun rasm prompti — yuz o'zgarmasligi shu yerda ta'minlanadi. */
-    fun sceneImage(project: Project, scene: Scene, actors: List<Actor>): String {
-        val identity = if (actors.isEmpty()) "" else buildString {
-            appendLine()
-            appendLine("IDENTITY LOCK — the attached reference photos define real people who MUST appear with the exact same face:")
-            actors.forEachIndexed { index, actor ->
-                appendLine("- Person ${index + 1} is \"${actor.name}\". Reference photo(s) #${index + 1}. ${actor.appearance.ifBlank { actor.note }}")
+    /**
+     * Bitta sahna kadri uchun rasm prompti.
+     * Etalon suratlar so'rovning boshida turadi, shuning uchun yo'riqnoma ham
+     * ana shu suratlarga ochiq havola qiladi — yuz o'zgarmasligining asosiy sharti.
+     */
+    fun sceneImage(project: Project, scene: Scene, blocks: List<RefBlock>): String = buildString {
+        if (blocks.isNotEmpty()) {
+            appendLine("PHOTO REFERENCES OF REAL PEOPLE ARE ATTACHED ABOVE. READ THIS FIRST.")
+            blocks.forEach { block ->
+                appendLine("- Attached ${block.label} = \"${block.name}\". ${block.appearance}")
             }
+            appendLine()
             appendLine(
-                "Reproduce each person's facial identity exactly as in their reference photo: same face shape, " +
-                    "eyes, nose, mouth, skin tone, hair and distinctive marks. Do not beautify, do not age, " +
-                    "do not change ethnicity, do not swap or blend faces between people. " +
-                    "Clothing, pose, expression, lighting and background must follow the scene description."
+                "Your task: draw these EXACT people in a new film frame. Every face you draw must be " +
+                    "recognisably the same person as in their attached photo — identical face shape, eyes, " +
+                    "eyebrows, nose, mouth, jawline, skin tone, hair and distinctive marks. " +
+                    "Treat the result as a new photograph of the same person taken on a film set. " +
+                    "Never invent a different face, never replace them with a generic model, never change " +
+                    "their age, gender or ethnicity, and never mix two people's features. " +
+                    "Only clothing, pose, expression, lighting and background follow the scene below."
             )
+            appendLine()
         }
 
-        return buildString {
-            appendLine("Generate a single storyboard frame for a short film. Photorealistic quality, no text, no watermark, no collage, no split screen.")
-            appendLine("Visual style: ${Styles.toPrompt(project.style)}.")
-            appendLine("Aspect ratio: ${project.aspect}.")
-            appendLine()
-            appendLine("FILM: ${project.title.ifBlank { project.idea.take(80) }}")
-            appendLine("SCENE ${scene.n}: ${scene.title}")
-            appendLine("Location: ${scene.location.ifBlank { "-" }} | Time: ${scene.timeOfDay.ifBlank { "-" }} | Camera: ${scene.camera.ifBlank { "medium shot" }}")
-            appendLine()
-            appendLine("SHOT DESCRIPTION: ${scene.imagePrompt}")
-            append(identity)
-        }.trim()
+        appendLine("SCENE ${scene.n} — ${scene.title}")
+        appendLine("Action: ${scene.imagePrompt}")
+        appendLine("Location: ${scene.location.ifBlank { "-" }} | Time: ${scene.timeOfDay.ifBlank { "-" }} | Camera: ${scene.camera.ifBlank { "medium shot" }}")
+        if (blocks.isNotEmpty()) {
+            appendLine("People in this frame: ${blocks.joinToString(", ") { it.name }}.")
+        }
+        appendLine()
+        appendLine("Style: ${Styles.toPrompt(project.style)}.")
+        appendLine("Framing: ${project.aspect} aspect ratio, single frame, high detail, sharp focus on faces, professional colour grading.")
+        append("Do not render any text, letters, logos, watermark, collage, split screen or border.")
     }
 
     /** Sahna promptini AI yordamida qayta yozish (kuchaytirish). */
     fun improvePrompt(current: String, style: String): String = """
         Rewrite the following storyboard shot description into one richer English image prompt.
         Keep the same action, characters (by name) and location, but add camera angle, lens, lighting,
-        color palette, composition and mood. Never describe the characters' faces. Max 120 words.
-        Answer with the prompt only, no preamble.
+        color palette, composition and mood. Never describe the characters' faces or hair.
+        Max 120 words. Answer with the prompt only, no preamble.
 
         Visual style: ${Styles.toPrompt(style)}
         Current description: $current

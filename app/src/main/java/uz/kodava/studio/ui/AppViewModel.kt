@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import uz.kodava.studio.ai.GeminiClient
 import uz.kodava.studio.ai.InlineImage
 import uz.kodava.studio.ai.Prompts
+import uz.kodava.studio.ai.RefBlock
 import uz.kodava.studio.ai.ScriptParser
 import uz.kodava.studio.data.Actor
 import uz.kodava.studio.data.Aspects
@@ -98,12 +99,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         actors.removeAll { it.id == id }
     }
 
-    fun addActorPhoto(actorId: String, uri: Uri) = launchSafely(null) {
+    fun addActorPhoto(actorId: String, uri: Uri) = launchSafely("Surat qo'shilmoqda…") {
         val path = withContext(Dispatchers.IO) { store.importActorPhoto(actorId, uri) }
             ?: throw IllegalStateException("Rasmni o'qib bo'lmadi")
         val actor = actor(actorId) ?: return@launchSafely
         val refs = actor.refs.toMutableList().apply { add(path) }
         updateActor(actor.copy(refs = refs))
+
+        // Birinchi surat qo'shilganda yuz pasportini darhol yozib qo'yamiz.
+        val fresh = actor(actorId)
+        if (fresh != null && fresh.appearance.isBlank() && hasKey()) {
+            busy = "Yuz tavsifi yozilmoqda…"
+            runCatching {
+                val images = fresh.refs.take(4).mapNotNull { p -> store.readBytes(p)?.let { InlineImage(it) } }
+                client().generateText(Prompts.actorAppearance(fresh), images, temperature = 0.4)
+            }.onSuccess { text -> actor(actorId)?.let { updateActor(it.copy(appearance = text.trim())) } }
+        }
     }
 
     fun removeActorPhoto(actorId: String, path: String) {
@@ -157,11 +168,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         actorIds: List<String>,
         onReady: (String) -> Unit
     ) = launchSafely("Senariy yozilmoqda…") {
+        val chosen = actorIds.ifEmpty { actors.filter { it.refs.isNotEmpty() }.map { it.id } }
         val fresh = store.newProject(idea).apply {
             this.style = style
             this.aspect = aspect
             this.sceneCount = sceneCount
-            this.actorIds = actorIds.toMutableList()
+            this.actorIds = chosen.toMutableList()
         }
         store.saveProject(fresh)
         project = fresh
@@ -254,20 +266,61 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         message = "Tayyor"
     }
 
+    /**
+     * Sahna uchun qaysi aktyorlar ishlatilishini aniqlaydi.
+     * Sahnaga biriktirilgan aktyorlar bo'lmasa loyiha aktyorlari, ular ham bo'lmasa
+     * kutubxonadagi suratli aktyorlar olinadi — yuz hech qachon "tasodifiy" chizilmasligi uchun.
+     */
+    fun actorsForScene(project: Project, scene: Scene): List<Actor> {
+        val byScene = actors.filter { it.id in scene.actorIds && it.refs.isNotEmpty() }
+        if (byScene.isNotEmpty()) return byScene
+        val byProject = actors.filter { it.id in project.actorIds && it.refs.isNotEmpty() }
+        if (byProject.isNotEmpty()) return byProject
+        return actors.filter { it.refs.isNotEmpty() }.take(2)
+    }
+
+    /** Loyihaga (va aktyorsiz sahnalarga) aktyorlarni biriktirish. */
+    fun setProjectActors(ids: List<String>) {
+        val current = project ?: return
+        current.actorIds = ids.toMutableList()
+        current.scenes = current.scenes.map { scene ->
+            if (scene.actorIds.none { it in ids }) scene.copy(actorIds = ids.toMutableList()) else scene
+        }.toMutableList()
+        persist()
+        message = if (ids.isEmpty()) "Aktyorlar olib tashlandi" else "${ids.size} ta aktyor biriktirildi"
+    }
+
     private suspend fun generateSceneImageInternal(n: Int) {
         val current = project ?: return
         val scene = current.scenes.firstOrNull { it.n == n } ?: return
         if (scene.imagePrompt.isBlank()) throw IllegalStateException("Sahna tavsifi bo'sh")
 
-        val sceneActors = actors.filter { it.id in scene.actorIds }
-            .ifEmpty { actors.filter { it.id in current.actorIds } }
-        // Har bir aktyordan bitta asosiy surat — promptdagi "Person 1, Person 2" tartibi bilan mos tushadi.
-        val refs = sceneActors.mapNotNull { a ->
-            a.refs.firstOrNull()?.let { path -> store.readBytes(path)?.let { InlineImage(it) } }
+        val sceneActors = actorsForScene(current, scene)
+        if (actors.isNotEmpty() && sceneActors.isEmpty()) {
+            throw IllegalStateException("Aktyorlarda surat yo'q — Aktyorlar bo'limiga kirib surat qo'shing")
         }
+
+        // Har bir aktyordan 2 tagacha etalon surat. Prompt aynan shu tartibga havola qiladi.
+        val references = mutableListOf<InlineImage>()
+        val blocks = mutableListOf<RefBlock>()
+        sceneActors.forEach { actor ->
+            val bytes = actor.refs.take(2).mapNotNull { path -> store.readBytes(path) }
+            if (bytes.isEmpty()) return@forEach
+            val first = references.size + 1
+            bytes.forEach { references.add(InlineImage(it)) }
+            blocks.add(
+                RefBlock(
+                    name = actor.name.ifBlank { "Personaj" },
+                    appearance = actor.appearance.ifBlank { actor.note },
+                    firstImage = first,
+                    lastImage = references.size
+                )
+            )
+        }
+
         val bytes = client().generateImage(
-            prompt = Prompts.sceneImage(current, scene, sceneActors),
-            references = refs,
+            prompt = Prompts.sceneImage(current, scene, blocks),
+            references = references,
             aspectRatio = current.aspect
         )
         val old = scene.imagePath
